@@ -2,8 +2,14 @@ import maya.cmds as mc
 from pathlib import Path
 import os
 import shutil
+import animLibrary.screenshotMod as ssm
+import animLibrary.fileMod as fm
 from animLibrary.screenshotMod import cam_screenshot
 from animLibrary.fileMod import write_json_file, read_json_file
+
+import imp
+imp.reload(ssm)
+imp.reload(fm)
 
 
 
@@ -13,7 +19,7 @@ class AnimLibrary():
     """
     def __init__(self):
         self.winName = "animLibrary"
-        self.winSize = (560, 450)
+        self.winSize = (560, 480)
         #Save the current project folder as a variable and use it to define some folders for the tool's files.
         self.projectFolder = mc.workspace(q=True, rootDirectory=True)
         self.posePath = f"{self.projectFolder}animPoses"
@@ -42,10 +48,12 @@ class AnimLibrary():
         poseLayout = mc.flowLayout(parent=poseScrollLayout, generalSpacing=5, columnSpacing=5, wrap=True, height=420, bgc=(.4, .4, .4))
         btnCol = mc.iconTextRadioCollection("PoseBtnCollection")
 
-        ctrlLayout = mc.columnLayout(parent=mainLayout, adj=True, columnAlign="center", rowSpacing=15, margins=10)
+        ctrlLayout = mc.columnLayout(parent=mainLayout, adj=True, columnAlign="center", rowSpacing=10, margins=10)
         #Take a screenshot immediately to put in the thumbnail UI.
         cam_screenshot(self.thumbPath, imageName="TempImg.jpg", activeCamera=True)
         uiThumb = mc.image(parent=ctrlLayout, image=os.path.join(self.thumbPath, "TempImg.jpg"), height=120, width=100)
+        self.GeoOnlyChkBox = mc.checkBox(label="Rig Geo Only", parent=ctrlLayout, value=False)
+
         thumbnailBtn = mc.button(label="Create Thumbnail", parent=ctrlLayout, command=lambda x:self.set_ui_thumbnail(uiThumb, self.thumbPath))
         self.selectionSaveChkBox = mc.checkBox(label="Save from Selection Only", parent=ctrlLayout, value=True)
         saveBtn = mc.button(label="Save Pose", parent=ctrlLayout, command=lambda x: self.lib_save_pose(poseLayout, self.posePath, btnCol))
@@ -58,7 +66,7 @@ class AnimLibrary():
         mc.menuItem(parent=currentMenu, label="Select with Suffix", command=lambda x: self.suffixPickTrue())
         mc.menuItem(parent=currentMenu, label="Select All Curves", command=lambda x: self.suffixPickFalse())
 
-        testBtn = mc.button(label="TEST", parent=ctrlLayout, command=lambda x: self.sort_btns(poseLayout)) #print("test"))
+        testBtn = mc.button(label="TEST", parent=ctrlLayout, command=lambda x: self.geo_check(mc.ls(sl=True))) #print("test"))
 
         #Attach the pose and control layouts to the main formLayout
         mc.formLayout(mainLayout, e=True, attachForm=([poseScrollLayout, "left", 10], 
@@ -178,15 +186,60 @@ class AnimLibrary():
         Takes a screenshot of Maya's current viewport and saves it to a file.
         Changes the image in an image control to the new file.
         """
-        #Takes a screenshot.
-        cam_screenshot(filePath, selObj=False, imageName=name, activeCamera=True, currentBG=False)
-        #Finds that new screenshot.
+        #Check if the "Geo Only" checkbox is checked.
+        getGeoChkBox = mc.checkBox(self.GeoOnlyChkBox, q=True, value=True)
+        if getGeoChkBox:
+            #Select the selected rig's geometry.
+            geo = self.select_rig_geo()
+            print(f"{geo=}")
+            #Take a screenshot with only the rig's geometry visible.
+            cam_screenshot(filePath, selObj=False, geoOnly=geo ,imageName=name, activeCamera=True, currentBG=False)
+        else:
+            #Save selected objects and then clear the selection.
+            selObjs = mc.ls(sl=True)
+            print(f"{selObjs=}")
+            mc.select(clear=True)
+            #Take a screenshot without altering the viewport.
+            cam_screenshot(filePath, selObj=False, imageName=name, activeCamera=True, currentBG=False)
+            #Re-select the selected objects.
+            mc.select(selObjs)
+        #Find the new screenshot.
         newThumbnail = os.path.join(filePath, name)
         #print(f"{newThumbnail=}")
         #Sets the screenshot as the image in the image control.
         mc.image(control, e=True, image=newThumbnail)
 
-    
+
+    def select_rig_geo(self)-> list:
+        """
+        Selects the geometry of the selected rig.
+        """
+        #Gets the last selected object.
+        selObj = mc.ls(sl=True)[0]
+        #print(selObj)
+        #Gets its namespace
+        nameSpace = selObj.split(":")[0]
+        #Gets all visible dagObjects in the same namespace.
+        rigAll = mc.ls(f"{nameSpace}:*", dagObjects=True, visible=True, objectsOnly=True, type="transform")
+        #print(rigAll)
+        rigMesh = []
+        #Checks the shape node of each listed dagObject and adds it to a list.
+        for obj in rigAll:
+            shape = mc.listRelatives(obj, shapes=True, fullPath=True)
+            if shape:
+                for s in shape:
+                    #print(mc.objectType(s))
+                    if mc.objectType(s, isType="mesh"):
+                        rigMesh.append(s)
+                    else:
+                        pass
+            else:
+                pass
+        #print(rigMesh)
+        #mc.select(rigMesh)
+        return rigMesh
+        
+
     def set_current_pose(self, dirPath, fileName):
         """
         Sets which pose json file is to be loaded.
@@ -419,7 +472,10 @@ class AnimLibrary():
                 for attr in attributes:
                     value = poseData[object].get(attr)
                     #print(f"{obj}.{attr} = {value}")
-                    mc.setAttr(f"{obj}.{attr}", value)
+                    try:
+                        mc.setAttr(f"{obj}.{attr}", value)
+                    except RuntimeError:
+                        print(f"{obj}.{attr} could not be altered and was skipped.")
 
 
     def select_pose_ctrls(self):
@@ -443,9 +499,17 @@ class AnimLibrary():
         for obj in objectList:
             #Put the controls in the json file into a list.
             objList.append(nameSpace+":"+obj)
-        #Select the list.
+        #print(f"{objList=}")
+        #Clear the current selection.
+        mc.select(clear=True)
+        #Seperate objList into objects that can be found and objects that can't.
+        skippedList = [obj for obj in objList if not mc.objExists(obj)]
+        objList = [obj for obj in objList if mc.objExists(obj)]
+        #Select all existing objects from objList and print the results.
         mc.select(objList)
         print(f"Pose controls selected: {objList}")
+        if len(skippedList) > 0:
+            print(f"{skippedList} not found. Selection skipped.")
 
     
     def suffixPickFalse(self):
@@ -495,30 +559,36 @@ class AnimLibrary():
             print(f"Confirmed directory: {filePath}.")
 
 
-    def get_pose_data(self, obj)-> dict:
+    def get_ctrl_attrs_data(self, obj)-> dict:
         """
         Collects an object's keyable attributes and their values into a dictionary {object:{attribute:value, attribute:value, etc}}
         """
         attrDict = {}
         attrs = mc.listAnimatable(obj)
-        #print(f"{obj=}")
-        for a in attrs:
-            #Replaces "|" with ":" in case namespaces are seperated by "|" instead of ":"
-            a = a.replace("|", ":")
-            #Breakdown each object into its namespace, object, attribute, and value.
-            namespace, attr = a.split(":")[0], a.split(":")[-1]
-            if namespace == "":
-                namespace = a.split(":")[1]
-            #print(a.split(":"))
-            object, attribute = attr.split(".")
-            #print(f"{namespace=} {attr=} {object=} {attribute=}")
-            value = mc.getAttr(f"{namespace}:{attr}")
-            #Add the attribute as a keyword and its value as a value to a dictionary.
-            attrDict[attribute] = value
-        #Create a dictionary with the object(removed from its namespace) as a keyword and the attrDict as its value.
-        objDict = {object:attrDict}
-        #print(f"{objDict=}")
-        return objDict
+        #print(f"{obj=} {attrs=}")
+        if attrs is not None:
+            #print("attrs is not None")
+            for a in attrs:
+                #Replaces "|" with ":" in case namespaces are seperated by "|" instead of ":"
+                a = a.replace("|", ":")
+                #Breakdown each object into its namespace, object, attribute, and value.
+                namespace, attr = a.split(":")[0], a.split(":")[-1]
+                if namespace == "":
+                    namespace = a.split(":")[1]
+                #print(a.split(":"))
+                object, attribute = attr.split(".")
+                #print(f"{namespace=} {attr=} {object=} {attribute=}")
+                value = mc.getAttr(f"{namespace}:{attr}")
+                #Add the attribute as a keyword and its value as a value to a dictionary.
+                attrDict[attribute] = value
+            #Create a dictionary with the object(removed from its namespace) as a keyword and the attrDict as its value.
+            objDict = {object:attrDict}
+            #print(f"{objDict=}")
+            return objDict
+        elif attrs is None:
+            #print("attrs is NONE")
+            pass
+
 
 
     def write_pose_file(self, dirPath, fileName):
@@ -540,10 +610,14 @@ class AnimLibrary():
             if self.ctrl_check(obj):
                 objList.append(obj)
         print(f"Saving data for: {objList}")
-        #Build a dictionary of pose data for all selected controls.
+        #Build a dictionary of attribute data for all selected controls.
         data = {}
+        #print(f"{objList=}")
         for obj in objList:
-            data.update(self.get_pose_data(obj))
+            #print(f"{obj=}")
+            objData = self.get_ctrl_attrs_data(obj)
+            if objData:
+                data.update(objData)
         #{object:{attribute:value, attribute:value, etc}, object:{attribute:value, attribute:value, etc}, etc}
         write_json_file(dirPath, fileName, data)
     

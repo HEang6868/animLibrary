@@ -12,7 +12,7 @@ def viewport_screenshot(filePath, name)-> str:
     return path.join(filePath, name)
 
 
-def cam_screenshot(filePath, selObj=False, imageName='.jpg', activeCamera=False, currentBG=False):
+def cam_screenshot(filePath, selObj=False, geoOnly=[], imageName='.jpg', activeCamera=False, currentBG=False):
     """
     Creates a camera to take a screenshot with specific dimensions.
     Has options to focus on and isolate selected objects, use the current camera, and change the background.
@@ -77,9 +77,25 @@ def cam_screenshot(filePath, selObj=False, imageName='.jpg', activeCamera=False,
         mc.isolateSelect(current_panel, state=True)
         mc.isolateSelect(current_panel, addSelected=True)
         # hide all the objects
-        # toggle visible only NURBSCurves and CVs
         mc.modelEditor(current_panel, edit=True, allObjects=False)
+        # Show only NURBSCurves and CVs in the viewport.
         mc.modelEditor(current_panel, edit=True, nurbsCurves=True, controlVertices=True)
+
+    if len(geoOnly) > 0:
+        print(f"{geoOnly=}")
+        #Select the given objects and isolate the selection.
+        mc.select(geoOnly)
+        mc.isolateSelect(current_panel, state=True)
+        mc.isolateSelect(current_panel, addSelected=True)
+
+        # hide all the objects
+        mc.modelEditor(current_panel, edit=True, allObjects=False)
+        #Show only meshes in the viewport and disable selection highlighting.
+        mc.modelEditor(current_panel, edit=True, polymeshes=True, selectionHiliteDisplay=False)
+
+
+
+
 
     #Enable anti-aliasing in the viewport
     mc.setAttr("hardwareRenderingGlobals.multiSampleEnable", 1)
@@ -87,11 +103,14 @@ def cam_screenshot(filePath, selObj=False, imageName='.jpg', activeCamera=False,
     mc.playblast(startTime=currentFrame, endTime=currentFrame+1, completeFilename=pathName, format="image", compression="jpg", viewer=False, widthHeight=(256,256))
 
     #Set everything back to default 
+    mc.isolateSelect(current_panel, state=False)
     mc.modelEditor(current_panel, edit=True, allObjects=True)
-    mc.modelEditor(current_panel, edit=True, hud=True)
+    mc.modelEditor(current_panel, edit=True, hud=True, selectionHiliteDisplay=True)
     mc.grid(toggle=True)
+
+    # if len(geoOnly) > 0:
+    mc.modelEditor(current_panel, edit=True, allObjects=True)
     if temp_grp:
-        mc.isolateSelect(current_panel, state=False)
         mc.delete(temp_grp)
 
     if not activeCamera:
@@ -113,3 +132,33 @@ def cam_screenshot(filePath, selObj=False, imageName='.jpg', activeCamera=False,
                                         ogBackgroundBot[1], 
                                         ogBackgroundBot[2]
                                         )
+        
+
+
+# def isolate_select(objects):
+#     """
+#     Takes a list of objects and hides everything else.
+#     """
+#     # Use the current modelPanel for isolation
+#     isolated_panel = mc.paneLayout('viewPanes', q=True, pane1=True)
+
+#     # turn on isolate select mode for a particular 3d view. Only
+#     mc.select( objects )
+#     # Connect the selected objects with editor and lock the current list of objects within the mainConnection
+#     mc.editor( isolated_panel, edit=True, lockMainConnection=True, mainListConnection='activeList' )
+#     mc.isolateSelect( isolated_panel, state=1 )
+
+    
+#     # Unlock the current list of objects within the editor
+#     mc.editor( isolated_panel, edit=True, mainListConnection='activeList' )
+#     mc.isolateSelect( isolated_panel, loadSelected=True )
+
+# isolate_select(["pCine1|bob"])
+
+
+# cam_screenshot(filePath="C:/Users/phyre/Documents/maya/projects/TECA6500_AdvancedScripting/animPoses/thumbnails",
+#                 selObj=False, 
+#                 geoOnly=["jack_rig:Spine_Torso_IK", "jack_rig:Upper_Body", "jack_rig:torso_geo"], 
+#                 imageName='blabla.jpg',
+#                 activeCamera=True, 
+#                 currentBG=False)
