@@ -2,8 +2,14 @@ import maya.cmds as mc
 from pathlib import Path
 import os
 import shutil
+import animLibrary.screenshotMod as ssm
+import animLibrary.fileMod as fm
 from animLibrary.screenshotMod import cam_screenshot
 from animLibrary.fileMod import write_json_file, read_json_file
+
+import imp
+imp.reload(ssm)
+imp.reload(fm)
 
 
 
@@ -13,11 +19,12 @@ class AnimLibrary():
     """
     def __init__(self):
         self.winName = "animLibrary"
-        self.winSize = (560, 450)
+        self.winSize = (560, 480)
         #Save the current project folder as a variable and use it to define some folders for the tool's files.
         self.projectFolder = mc.workspace(q=True, rootDirectory=True)
         self.posePath = f"{self.projectFolder}animPoses"
         self.thumbPath = f"{self.projectFolder}animPoses/thumbnails"
+        self.suffixPick = True
 
         #Close the tool if it's already open.
         if mc.window(self.winName, exists=True):
@@ -41,10 +48,12 @@ class AnimLibrary():
         poseLayout = mc.flowLayout(parent=poseScrollLayout, generalSpacing=5, columnSpacing=5, wrap=True, height=420, bgc=(.4, .4, .4))
         btnCol = mc.iconTextRadioCollection("PoseBtnCollection")
 
-        ctrlLayout = mc.columnLayout(parent=mainLayout, adj=True, columnAlign="center", rowSpacing=15, margins=10)
+        ctrlLayout = mc.columnLayout(parent=mainLayout, adj=True, columnAlign="center", rowSpacing=10, margins=10)
         #Take a screenshot immediately to put in the thumbnail UI.
         cam_screenshot(self.thumbPath, imageName="TempImg.jpg", activeCamera=True)
         uiThumb = mc.image(parent=ctrlLayout, image=os.path.join(self.thumbPath, "TempImg.jpg"), height=120, width=100)
+        self.GeoOnlyChkBox = mc.checkBox(label="Rig Geo Only", parent=ctrlLayout, value=False)
+
         thumbnailBtn = mc.button(label="Create Thumbnail", parent=ctrlLayout, command=lambda x:self.set_ui_thumbnail(uiThumb, self.thumbPath))
         self.selectionSaveChkBox = mc.checkBox(label="Save from Selection Only", parent=ctrlLayout, value=True)
         saveBtn = mc.button(label="Save Pose", parent=ctrlLayout, command=lambda x: self.lib_save_pose(poseLayout, self.posePath, btnCol))
@@ -52,8 +61,12 @@ class AnimLibrary():
         self.selectionLoadChkBox = mc.checkBox(label="Load to Selection Only", parent=ctrlLayout, value=True)
         loadBtn = mc.button(label="Load Pose", parent=ctrlLayout, command=lambda x:self.lib_load_pose())
         selAllBtn = mc.button(label="Select ALL Rig Controls", parent=ctrlLayout, command=lambda x:self.select_rig_ctrls())
+        #Create a popup menu for selAllBtn to switch how the tool finds a rig's controls.
+        currentMenu = mc.popupMenu(parent=selAllBtn)
+        mc.menuItem(parent=currentMenu, label="Select with Suffix", command=lambda x: self.suffixPickTrue())
+        mc.menuItem(parent=currentMenu, label="Select All Curves", command=lambda x: self.suffixPickFalse())
 
-        # testBtn = mc.button(label="TEST", parent=ctrlLayout, command=lambda x: print("test"))
+        testBtn = mc.button(label="TEST", parent=ctrlLayout, command=lambda x: self.geo_check(mc.ls(sl=True))) #print("test"))
 
         #Attach the pose and control layouts to the main formLayout
         mc.formLayout(mainLayout, e=True, attachForm=([poseScrollLayout, "left", 10], 
@@ -71,6 +84,7 @@ class AnimLibrary():
         mc.window(self.winName, edit=True, widthHeight=self.winSize)
         #Populates the tool with any existing poses.
         self.load_all_btns(self.posePath, poseLayout, btnCol)
+        self.btn_process(poseLayout)
         
 
     ########################
@@ -91,14 +105,32 @@ class AnimLibrary():
         for pf in ExistingPoseFiles:
             #Seperate the json filename from its extension.
             poseName = pf.split(".")[0]
-            print(f"{poseName=}")
+            #print(f"{poseName=}")
             #Use the filename to find the matching thumbnail jpg.
             thumbName = poseName+".jpg"
             thumbPath = os.path.join(filePath, "thumbnails", thumbName)
-            #Add a button to the layout using the info above.
+            #Add a button to the layout using the info above. Set its command to print "Files Missing" in case btn_process can't find its matching file.
             newBtn = self.add_pic_btn(layout, poseName, thumbPath, print, collection)
-            print(f"{newBtn=}")
-            mc.iconTextRadioButton(newBtn, e=True, onCommand=lambda x: self.set_current_pose(filePath, poseName))
+            #print(f"{newBtn=}")
+            mc.iconTextRadioButton(newBtn, e=True, onCommand=lambda x:print("Files Missing") )
+        
+
+    
+    def btn_process(self, layout):
+        """
+        Goes through each button in the given layout and runs self.set_btn_path() on them.
+        """
+        btnList = mc.flowLayout(layout, q=True, childArray=True)
+        for btn in btnList:
+            self.set_btn_path(btn)
+
+
+    def set_btn_path(self, button):
+        """
+        Sets a given button's command to point to a given filePath based on its label.
+        """
+        btnName = mc.iconTextRadioButton(button, q=True, label=True)
+        mc.iconTextRadioButton(button, e=True, onCommand=(lambda x: self.set_current_pose(self.posePath, btnName) ) )
     
 
     def file_name_dialog(self):
@@ -154,21 +186,66 @@ class AnimLibrary():
         Takes a screenshot of Maya's current viewport and saves it to a file.
         Changes the image in an image control to the new file.
         """
-        #Takes a screenshot.
-        cam_screenshot(filePath, selObj=False, imageName=name, activeCamera=True, currentBG=False)
-        #Finds that new screenshot.
+        #Check if the "Geo Only" checkbox is checked.
+        getGeoChkBox = mc.checkBox(self.GeoOnlyChkBox, q=True, value=True)
+        if getGeoChkBox:
+            #Select the selected rig's geometry.
+            geo = self.select_rig_geo()
+            print(f"{geo=}")
+            #Take a screenshot with only the rig's geometry visible.
+            cam_screenshot(filePath, selObj=False, geoOnly=geo ,imageName=name, activeCamera=True, currentBG=False)
+        else:
+            #Save selected objects and then clear the selection.
+            selObjs = mc.ls(sl=True)
+            print(f"{selObjs=}")
+            mc.select(clear=True)
+            #Take a screenshot without altering the viewport.
+            cam_screenshot(filePath, selObj=False, imageName=name, activeCamera=True, currentBG=False)
+            #Re-select the selected objects.
+            mc.select(selObjs)
+        #Find the new screenshot.
         newThumbnail = os.path.join(filePath, name)
-        print(f"{newThumbnail=}")
+        #print(f"{newThumbnail=}")
         #Sets the screenshot as the image in the image control.
         mc.image(control, e=True, image=newThumbnail)
 
-    
+
+    def select_rig_geo(self)-> list:
+        """
+        Selects the geometry of the selected rig.
+        """
+        #Gets the last selected object.
+        selObj = mc.ls(sl=True)[0]
+        #print(selObj)
+        #Gets its namespace
+        nameSpace = selObj.split(":")[0]
+        #Gets all visible dagObjects in the same namespace.
+        rigAll = mc.ls(f"{nameSpace}:*", dagObjects=True, visible=True, objectsOnly=True, type="transform")
+        #print(rigAll)
+        rigMesh = []
+        #Checks the shape node of each listed dagObject and adds it to a list.
+        for obj in rigAll:
+            shape = mc.listRelatives(obj, shapes=True, fullPath=True)
+            if shape:
+                for s in shape:
+                    #print(mc.objectType(s))
+                    if mc.objectType(s, isType="mesh"):
+                        rigMesh.append(s)
+                    else:
+                        pass
+            else:
+                pass
+        #print(rigMesh)
+        #mc.select(rigMesh)
+        return rigMesh
+        
+
     def set_current_pose(self, dirPath, fileName):
         """
         Sets which pose json file is to be loaded.
         """
         self.currentPose = os.path.join(dirPath, f"{fileName}.json")
-        print(self.currentPose)
+        #print(self.currentPose)
         return self.currentPose
 
 
@@ -186,14 +263,14 @@ class AnimLibrary():
         #Increases the layout's height.
         mc.flowLayout(layout, e=True, height=int(layoutHeight)+126)
         #Adds a popupMenu to the button that appears when the button is right clicked.
-        self.btn_popup_menu(newIconBtn, layout)
+        self.poseBtn_popup_menu(newIconBtn, layout)
         return newIconBtn
         
 
 
-    def btn_popup_menu(self, button, layout):
+    def poseBtn_popup_menu(self, button, layout):
         """
-        Creates a popup menu for a given button.
+        Creates a popup menu for a given pose button.
         """
         currentMenu = mc.popupMenu(parent=button)
         mc.menuItem(parent=currentMenu, label="Rename pose", command=lambda x: self.rename_pose_btn(button, layout))
@@ -299,7 +376,7 @@ class AnimLibrary():
         Searches a UI for a button with a given label and return it.
         """
         allBtns = mc.flowLayout(layout, q=True, childArray=True)
-        print(f"{allBtns=}")
+        #print(f"{allBtns=}")
         if allBtns:
             for btn in allBtns:
                 labelCheck = mc.iconTextRadioButton(btn, q=True, label=True)
@@ -317,7 +394,8 @@ class AnimLibrary():
         Checks if the given object is a nurbsCurve.
         """
         #Get the object's shape node and check if it's a nurbsCurve.
-        shape = mc.listRelatives(obj, shapes=True)
+        shape = mc.listRelatives(obj, shapes=True, fullPath=True)
+        #print(f"{shape=}")
         #Return the result.
         if shape:
             for s in shape:
@@ -336,6 +414,10 @@ class AnimLibrary():
         """
         Function that runs when "Save Pose" button is pressed.
         """
+        #Check that at least one control is selected.
+        selObjs = mc.ls(sl=True)
+        if len(selObjs) < 1:
+            return print("Select at least one control to save.")
         #Opens a dialog to ask for a name.
         nameInput = self.file_name_dialog()
         if nameInput:
@@ -362,8 +444,11 @@ class AnimLibrary():
         """
         #Get the currentPose.
         filePath = self.currentPose
+        selObj = mc.ls(sl=True)
         if filePath == "":
-            print("No pose was selected.")
+            print("No pose was selected!")
+        if len(selObj) < 1:
+            return print("No controls were selected!")
         else:
             #Check the UI if "Load to Selection Only" checkbox is checked.
             getSelOnlyCheck = mc.checkBox(self.selectionLoadChkBox, q=True, value=True)
@@ -381,42 +466,82 @@ class AnimLibrary():
                 #Read the json file and apply its values to any selected controls that are in it.
                 poseData = self.read_pose_file(filePath)
                 #object = poseData[obj]
-                print(f"2 {poseData=}\n {object=}")
+                #print(f"2 {poseData=}\n {object=}")
                 attributes = poseData.get(object)
-                print(f"{attributes=}")
+                #print(f"{attributes=}")
                 for attr in attributes:
                     value = poseData[object].get(attr)
-                    print(f"{obj}.{attr} = {value}")
-                    #mc.setAttr(f"{object}.{attr}", value)
+                    #print(f"{obj}.{attr} = {value}")
+                    try:
+                        mc.setAttr(f"{obj}.{attr}", value)
+                    except RuntimeError:
+                        print(f"{obj}.{attr} could not be altered and was skipped.")
 
 
     def select_pose_ctrls(self):
         """
         Select all involved controls in the self.currentPose file.
         """
-        selObj = mc.ls(sl=True)[0]
-        if selObj:
-            nameSpace = selObj.split(":")[0]
+        #Make sure a pose is selected.
+        if self.currentPose == "":
+            print("No pose was selected.")
+        #Make sure a control is selected.
+        selObj = mc.ls(sl=True)
+        if len(selObj) > 0:
+            #Get the control's namespace.
+            nameSpace = selObj[0].split(":")[0]
         else:
             return print("Nothing selected. Select one control on the rig you wish to affect.")
+        #Read the pose's json file to get its controls.
         poseData = read_json_file(self.currentPose)
         objectList = poseData.keys()
         objList = []
         for obj in objectList:
+            #Put the controls in the json file into a list.
             objList.append(nameSpace+":"+obj)
+        #print(f"{objList=}")
+        #Clear the current selection.
+        mc.select(clear=True)
+        #Seperate objList into objects that can be found and objects that can't.
+        skippedList = [obj for obj in objList if not mc.objExists(obj)]
+        objList = [obj for obj in objList if mc.objExists(obj)]
+        #Select all existing objects from objList and print the results.
         mc.select(objList)
         print(f"Pose controls selected: {objList}")
+        if len(skippedList) > 0:
+            print(f"{skippedList} not found. Selection skipped.")
+
+    
+    def suffixPickFalse(self):
+        self.suffixPick = False
+        print("Select ALL Rig Controls will select all curves in the rig.")
+    
+    def suffixPickTrue(self):
+        self.suffixPick = True
+        print("Select ALL Rig Controls will select controls based on suffix.")
 
 
     def select_rig_ctrls(self):
         """
         Select all controls in a rig, from one selected control.
+        Uses different methods based on self.suffixPick variable.
         """
         selObj = mc.ls(sl=True)[0]
         ns, obj = selObj.split(":")[0], selObj.split(":")[-1]
-        suffix = obj.split("_")[-1]
-        rigCtrls = mc.ls(f"{ns}:*{suffix}")
+        if self.suffixPick:
+            suffix = obj.split("_")[-1]
+            rigCtrls = mc.ls(f"{ns}:*{suffix}")
+        else:
+            wholeRig = mc.ls(f"{ns}:*")
+            rigCtrls = [x for x in wholeRig if self.ctrl_check(x)]
+
+        print(f"Selected controls: {rigCtrls}")
         mc.select(rigCtrls)
+
+    
+    def sort_btns(self, layout):
+        children = mc.layout(layout, q=True, childArray=True)
+        print(children)
 
 
     ##########################
@@ -434,30 +559,36 @@ class AnimLibrary():
             print(f"Confirmed directory: {filePath}.")
 
 
-    def get_pose_data(self, obj)-> dict:
+    def get_ctrl_attrs_data(self, obj)-> dict:
         """
         Collects an object's keyable attributes and their values into a dictionary {object:{attribute:value, attribute:value, etc}}
         """
         attrDict = {}
         attrs = mc.listAnimatable(obj)
-        #print(f"{obj=}")
-        for a in attrs:
-            #Replaces "|" with ":" in case namespaces are seperated by "|" instead of ":"
-            a = a.replace("|", ":")
-            #Breakdown each object into its namespace, object, attribute, and value.
-            namespace, attr = a.split(":")[0], a.split(":")[-1]
-            if namespace == "":
-                namespace = a.split(":")[1]
-            #print(a.split(":"))
-            object, attribute = attr.split(".")
-            #print(f"{namespace=} {attr=} {object=} {attribute=}")
-            value = mc.getAttr(f"{namespace}:{attr}")
-            #Add the attribute as a keyword and its value as a value to a dictionary.
-            attrDict[attribute] = value
-        #Create a dictionary with the object(removed from its namespace) as a keyword and the attrDict as its value.
-        objDict = {object:attrDict}
-        #print(f"{objDict=}")
-        return objDict
+        #print(f"{obj=} {attrs=}")
+        if attrs is not None:
+            #print("attrs is not None")
+            for a in attrs:
+                #Replaces "|" with ":" in case namespaces are seperated by "|" instead of ":"
+                a = a.replace("|", ":")
+                #Breakdown each object into its namespace, object, attribute, and value.
+                namespace, attr = a.split(":")[0], a.split(":")[-1]
+                if namespace == "":
+                    namespace = a.split(":")[1]
+                #print(a.split(":"))
+                object, attribute = attr.split(".")
+                #print(f"{namespace=} {attr=} {object=} {attribute=}")
+                value = mc.getAttr(f"{namespace}:{attr}")
+                #Add the attribute as a keyword and its value as a value to a dictionary.
+                attrDict[attribute] = value
+            #Create a dictionary with the object(removed from its namespace) as a keyword and the attrDict as its value.
+            objDict = {object:attrDict}
+            #print(f"{objDict=}")
+            return objDict
+        elif attrs is None:
+            #print("attrs is NONE")
+            pass
+
 
 
     def write_pose_file(self, dirPath, fileName):
@@ -479,10 +610,14 @@ class AnimLibrary():
             if self.ctrl_check(obj):
                 objList.append(obj)
         print(f"Saving data for: {objList}")
-        #Build a dictionary of pose data for all selected controls.
+        #Build a dictionary of attribute data for all selected controls.
         data = {}
+        #print(f"{objList=}")
         for obj in objList:
-            data.update(self.get_pose_data(obj))
+            #print(f"{obj=}")
+            objData = self.get_ctrl_attrs_data(obj)
+            if objData:
+                data.update(objData)
         #{object:{attribute:value, attribute:value, etc}, object:{attribute:value, attribute:value, etc}, etc}
         write_json_file(dirPath, fileName, data)
     
@@ -494,18 +629,7 @@ class AnimLibrary():
         #Read the json file.
         poseData = read_json_file(filePath)
         return poseData
-        #List the objects.
-        # objectList = poseData.keys()
-        # #For each object, list its attributes.
-        # for self.object in objectList:
-        #     attrs = poseData[self.object].keys()
-        #     #For each attribute, get its matching value.
-        #     for self.attr in attrs:
-        #         self.value=poseData[self.object].get(self.attr)
-        #         # mc.setAttr(f"{object}.{attr}", value)
-        #         print(f"{self.object=} : {self.attr=} : value={poseData[self.object].get(self.attr)}")
-        #         #Return sets of objects, attributes, and values.
-        #         return self.object, self.attr, self.value
+
             
 
 

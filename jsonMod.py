@@ -19,5 +19,5 @@ def read_json_file(filePath)-> dict:
     """
     with open(filePath) as dataFile:
         loadedData = json.load(dataFile)
-        print(f"Read {filePath}. Returned: {loadedData}")
+        #print(f"Read {filePath}. Returned: {loadedData}")
         return loadedData
