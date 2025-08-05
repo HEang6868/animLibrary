@@ -5,6 +5,7 @@ import shutil
 import animLibrary.screenshotMod as ssm
 import animLibrary.fileMod as fm
 from animLibrary.screenshotMod import cam_screenshot
+from animLibrary.fileMod import write_json_file, read_json_file
 
 import imp
 imp.reload(ssm)
@@ -21,10 +22,8 @@ class AnimLibrary():
         self.winSize = (560, 480)
         #Save the current project folder as a variable and use it to define some folders for the tool's files.
         self.projectFolder = mc.workspace(q=True, rootDirectory=True)
-        self.libPath = f"{self.projectFolder}animPoses"
-        self.libThumbPath = f"{self.projectFolder}animPoses/thumbnails"
-        self.posePath = self.libPath
-        self.thumbPath = self.libThumbPath
+        self.posePath = f"{self.projectFolder}animPoses"
+        self.thumbPath = f"{self.projectFolder}animPoses/thumbnails"
         self.suffixPick = True
 
         #Close the tool if it's already open.
@@ -32,261 +31,61 @@ class AnimLibrary():
             mc.deleteUI(self.winName)
         
         #Confirm or create the filePaths defined above.
-        fm.file_path_check(self.posePath)
-        fm.file_path_check(self.thumbPath)
+        self.file_path_check(self.posePath)
+        self.file_path_check(self.thumbPath)
         #Create the self.currentPose variable.
         self.currentPose = ""
 
         #Create the tool window!
         self.mainWindow = mc.window(self.winName, widthHeight=self.winSize, title="Anim Pose Library", menuBar=True)
-        #Create the options menu.
-        tabMenu = mc.menu(label="Tab Options", parent=self.mainWindow)
-        mc.menuItem(parent=tabMenu, label="Add Tab", command=lambda x:self.add_tab(tabPageLayout))
-        mc.menuItem(parent=tabMenu, label="Load Tab", command=lambda x: self.load_tab(tabPageLayout))
-        mc.menuItem(parent=tabMenu, label="Rename Current Tab", command=lambda x: self.rename_tab(tabPageLayout))
-        mc.menuItem(parent=tabMenu, divider=True)
-        mc.menuItem(parent=tabMenu, divider=True)
-        mc.menuItem(parent=tabMenu, label="Delete Current Pose Folder", command=lambda x: self.delete_folder(tabPageLayout))
-        #Create a menu to switch how the tool finds a rig's controls.
-        selMenu = mc.menu(label="'Select All' Settings", parent=self.mainWindow)
-        mc.menuItem(parent=selMenu, label="Select with Suffix", command=lambda x: self.suffixPickTrue())
-        mc.menuItem(parent=selMenu, label="Select All Curves", command=lambda x: self.suffixPickFalse())
-        
+        #######################################################################################################
+        # fileMenu = mc.menu(label="File", parent=self.mainWindow)
+        # mc.menuItem(label="Set Library Path", parent=fileMenu)
+
         #Create the layouts and controls.
         mainLayout = mc.formLayout(numberOfDivisions=100)
-        
-        tabPageLayout = mc.tabLayout(parent=mainLayout, 
-                                     scrollable=True, 
-                                     childResizable=True, 
-                                     tabPosition="west", 
-                                     tabsClosable=True, 
-                                     selectCommand=lambda: self.set_current_tab(tabPageLayout),
-                                     #closeTabCommand=lambda x, y: self.reset_tab(tabPageLayout)
-                                     )
-        #tabMenu = mc.popupMenu(parent=tabPageLayout)
-        
-        #Create a layout for holding buttons.
-        self.poseLayout = mc.flowLayout(parent=tabPageLayout, generalSpacing=5, columnSpacing=5, wrap=True, height=420, bgc=(.4, .4, .4))
-        self.btnCol = mc.iconTextRadioCollection("PoseBtnCollection")        
-        mc.tabLayout(tabPageLayout, e=True, tabLabel=(self.poseLayout, "animPoses"))
-        self.generalTab = mc.tabLayout(tabPageLayout, q=True, selectTab=True)
-        
-        #Create the layout for holding the controls.
+        poseScrollLayout = mc.scrollLayout(parent=mainLayout, childResizable=True, verticalScrollBarAlwaysVisible=True)
+        poseLayout = mc.flowLayout(parent=poseScrollLayout, generalSpacing=5, columnSpacing=5, wrap=True, height=420, bgc=(.4, .4, .4))
+        btnCol = mc.iconTextRadioCollection("PoseBtnCollection")
+
         ctrlLayout = mc.columnLayout(parent=mainLayout, adj=True, columnAlign="center", rowSpacing=10, margins=10)
         #Take a screenshot immediately to put in the thumbnail UI.
         cam_screenshot(self.thumbPath, imageName="TempImg.jpg", activeCamera=True)
         uiThumb = mc.image(parent=ctrlLayout, image=os.path.join(self.thumbPath, "TempImg.jpg"), height=120, width=100)
         self.GeoOnlyChkBox = mc.checkBox(label="Rig Geo Only", parent=ctrlLayout, value=True)
 
-        thumbnailBtn = mc.button(label="Create Thumbnail", parent=ctrlLayout, command=lambda x:self.set_ui_thumbnail(uiThumb, self.libThumbPath))
-        self.selectionSaveChkBox = mc.checkBox(label="Save from Selection Only", parent=ctrlLayout, value=False)
-        saveBtn = mc.button(label="Save Pose", parent=ctrlLayout, command=lambda x: self.lib_save_pose(self.poseLayout, self.posePath, self.btnCol))
+        thumbnailBtn = mc.button(label="Create Thumbnail", parent=ctrlLayout, command=lambda x:self.set_ui_thumbnail(uiThumb, self.thumbPath))
+        self.selectionSaveChkBox = mc.checkBox(label="Save from Selection Only", parent=ctrlLayout, value=True)
+        saveBtn = mc.button(label="Save Pose", parent=ctrlLayout, command=lambda x: self.lib_save_pose(poseLayout, self.posePath, btnCol))
         selCtrlsBtn = mc.button(label="Select Controls from Pose", parent=ctrlLayout, command=lambda x: self.select_pose_ctrls())
-        selAllBtn = mc.button(label="Select ALL Rig Controls", parent=ctrlLayout, command=lambda x:self.select_rig_ctrls())
         self.selectionLoadChkBox = mc.checkBox(label="Load to Selection Only", parent=ctrlLayout, value=True)
         loadBtn = mc.button(label="Load Pose", parent=ctrlLayout, command=lambda x:self.lib_load_pose())
-        
+        selAllBtn = mc.button(label="Select ALL Rig Controls", parent=ctrlLayout, command=lambda x:self.select_rig_ctrls())
         #Create a popup menu for selAllBtn to switch how the tool finds a rig's controls.
-        #currentMenu = mc.popupMenu(parent=selAllBtn)
+        currentMenu = mc.popupMenu(parent=selAllBtn)
+        mc.menuItem(parent=currentMenu, label="Select with Suffix", command=lambda x: self.suffixPickTrue())
+        mc.menuItem(parent=currentMenu, label="Select All Curves", command=lambda x: self.suffixPickFalse())
 
-        #Button for testing functions.
-        #mc.button(label="TEST", parent=ctrlLayout, command=lambda x: self.reload_layout(self.poseLayout)) #print("test"))
+        #testBtn = mc.button(label="TEST", parent=ctrlLayout, command=lambda x: self.geo_check(mc.ls(sl=True))) #print("test"))
 
         #Attach the pose and control layouts to the main formLayout
-        mc.formLayout(mainLayout, e=True, attachForm=([tabPageLayout, "left", 10], 
-                                                      [tabPageLayout, "top", 10],
-                                                      [tabPageLayout, "bottom", 10],
+        mc.formLayout(mainLayout, e=True, attachForm=([poseScrollLayout, "left", 10], 
+                                                      [poseScrollLayout, "top", 10],
+                                                      [poseScrollLayout, "bottom", 10],
                                                       [ctrlLayout, "right", 10], 
                                                       [ctrlLayout, "top", 10],
                                                       [ctrlLayout, "bottom", 10]
                                                       ),
-                                        attachPosition=([tabPageLayout, "right", 0, 70]),
-                                        attachControl=([ctrlLayout, "left", 0, tabPageLayout])
+                                        attachPosition=([poseScrollLayout, "right", 0, 70]),
+                                        attachControl=([ctrlLayout, "left", 0, poseScrollLayout])
                                                       )
-        #Open the tool window and set its dimensions.
+        
         mc.showWindow()
         mc.window(self.winName, edit=True, widthHeight=self.winSize)
-        #Populates the tool with any existing poses and tabs.
-        self.load_all_btns(self.posePath, self.poseLayout, self.btnCol)
-        self.load_all_tabs(self.posePath, tabPageLayout)
+        #Populates the tool with any existing poses.
+        self.load_all_btns(self.posePath, poseLayout, btnCol)
+        #self.btn_process(poseLayout)
         
-
-        
-    #########################
-    ###   TAB FUNCTIONS   ###
-    #########################
-
-    def set_current_tab(self, layout):
-        """
-        The selectCommand that sets which pose and thumbnails folders the tool should be looking at, and which poseLayout it should be editing.
-        """
-        #List all tabs, get the selected tab, then get the selected tab's index.
-        allTabs = mc.tabLayout(layout, q=True, childArray=True)
-        selectedTab = mc.tabLayout(layout, q=True, selectTab=True)
-        tabIndex = allTabs.index(selectedTab)
-        #List all the tab labels, get the label at the index onf the selected tab.
-        tabNames = mc.tabLayout(layout, q=True, tabLabel=True)
-        tabName = tabNames[tabIndex]
-        #Set the posePath and thumbPath variables to match the chosen tab/folder.
-        if tabName == "animPoses":
-            self.posePath = f"{self.projectFolder}animPoses"
-            self.thumbPath = f"{self.projectFolder}animPoses/thumbnails"
-        else:
-            self.posePath = os.path.join(f"{self.projectFolder}", "animPoses", tabName)
-            self.thumbPath = os.path.join(f"{self.projectFolder}", "animPoses", tabName, "thumbnails")
-        #print(self.posePath)
-        tabLayout = mc.tabLayout(layout, q=True, childArray=True)[tabIndex]
-        #print(tabLayout)
-        self.poseLayout = tabLayout
-    
-
-    # def reset_tab(self, layout):
-    #     """
-    #     The closeTabCommand that resets the selected tab and filepaths.
-    #     """
-    #     #List all tabs, get the selected tab, get the selected tab's index
-    #     allTabs = mc.tabLayout(layout, q=True, childArray=True)
-    #     selectedTab = mc.tabLayout(layout, q=True, selectTab=True)
-    #     tabIndex = allTabs.index(selectedTab)
-    #     mc.tabLayout(layout, e=True, selectTabIndex=1)
-    #     self.set_current_tab(layout)
-
-
-    def add_tab(self, layout, name=False):
-        """
-        Add a new tab to a given tabLayout.
-        """
-        if name == False:
-            #Open a dialog asking for a name.
-            nameInput = mc.promptDialog(title="Name Tab", 
-                                        message="What do you want to call this tab?", 
-                                        button=["Confirm", "Cancel"], 
-                                        defaultButton="Confirm", 
-                                        cancelButton="Cancel"
-                                        )
-            if nameInput == "Confirm" and nameInput != "":
-                #Get the name from the dialog.
-                name = mc.promptDialog(q=True, text=True)
-            else:
-                return
-        else:
-            name = name
-        #Create a new layout for the tab.
-        newFlowLayout = mc.flowLayout(parent=layout, generalSpacing=5, columnSpacing=5, wrap=True, height=420, bgc=(.4, .4, .4))
-        #Add a tab with the layout in it.
-        mc.tabLayout(layout, e=True, tabLabel=(newFlowLayout, name))
-        newPosePath = os.path.join(self.libPath, name)
-        newThumbPath = os.path.join(self.libPath, name, "thumbnails")
-        fm.file_path_check(newPosePath)
-        fm.file_path_check(newThumbPath)
-        self.load_all_btns(newPosePath, newFlowLayout, self.btnCol)
-    
-
-    def load_tab(self, layout):
-        """
-        Opens a file directory to choose a folder from which you can choose a library to load.
-        """
-        folderLoad = mc.fileDialog2(caption="Load Pose Library", 
-                                            fileMode=3, 
-                                            okCaption="Load",
-                                            cancelCaption="Cancel",
-                                            startingDirectory=self.libPath
-                                        )
-        if folderLoad:
-            #print(folderLoad)
-            #Create a new layout for the new tab.
-            newFlowLayout = mc.flowLayout(parent=layout, generalSpacing=5, columnSpacing=5, wrap=True, height=420, bgc=(.4, .4, .4))
-            #Get the name of the folder.
-            name = folderLoad[0].split("/")[-1]
-            #Create a new tab with the name of the folder as its label.
-            mc.tabLayout(layout, e=True, tabLabel=(newFlowLayout, name))
-            if name == "animPoses":
-                newPosePath = self.libPath
-                newThumbPath = self.libThumbPath
-            else:
-                newPosePath = os.path.join(self.libPath, name)
-                newThumbPath = os.path.join(self.libPath, name, "thumbnails")
-            fm.file_path_check(newPosePath)
-            fm.file_path_check(newThumbPath)
-            self.load_all_btns(newPosePath, newFlowLayout, self.btnCol)
-
-    
-    def load_all_tabs(self, filePath, layout):
-        """
-        Checks a directory for folders and creates a new tab for each folder.
-        """
-        #Make a list of all of the folders in a filepath.
-        poseFolders = []
-        for (dirPath, dirnames, fileNames) in os.walk(filePath):
-            poseFolders.extend(dirnames)
-            #Break the for loop so it only looks in the first folder.
-            break
-        for pf in poseFolders:
-            folderName = pf.split("/")[0]
-            if folderName == "thumbnails":
-                pass
-            else:
-                self.add_tab(layout, name=folderName)
-    
-
-    def rename_tab(self, layout):
-        """
-        Renames a tab and its matching folder.
-        """
-        #List all tabs, get the selected tab, get the selected tab's index
-        allTabs = mc.tabLayout(layout, q=True, childArray=True)
-        selectedTab = mc.tabLayout(layout, q=True, selectTab=True)
-        tabIndex = allTabs.index(selectedTab)
-        #List all the tab labels, get the label at the index onf the selected tab.
-        tabNames = mc.tabLayout(layout, q=True, tabLabel=True)
-        tabName = tabNames[tabIndex]
-        #print(tabIndex)
-        if tabName == "animPoses":
-            return print("Can't rename base tab.")
-        nameInput = mc.promptDialog(title="rename Tab", 
-                                        message="What do you want to rename this tab to?", 
-                                        button=["Confirm", "Cancel"], 
-                                        defaultButton="Confirm", 
-                                        cancelButton="Cancel"
-                                        )
-        if nameInput == "Confirm" and nameInput != "":
-            #Get the name from the dialog.
-            newName = mc.promptDialog(q=True, text=True)
-        else:
-            return
-        mc.tabLayout(layout, e=True, tabLabelIndex=(tabIndex+1, newName))
-        oldPath = os.path.join(self.libPath, tabName)
-        newPath = os.path.join(self.libPath, newName)
-        if os.path.exists(oldPath):
-            os.rename(oldPath, newPath)
-
-
-    def delete_folder(self, layout):
-        """
-        Deletes a pose folder, all of the files inside it, and the matching tab.
-        """
-        #List all tabs, get the selected tab, get the selected tab's index
-        allTabs = mc.tabLayout(layout, q=True, childArray=True)
-        selectedTab = mc.tabLayout(layout, q=True, selectTab=True)
-        tabIndex = allTabs.index(selectedTab)
-        #List all the tab labels, get the label at the index onf the selected tab.
-        tabNames = mc.tabLayout(layout, q=True, tabLabel=True)
-        tabName = tabNames[tabIndex]
-        if tabName == "animPoses":
-            return mc.inViewMessage(assistMessage="WARNING: You cannot delete the main folder this way! ", fade=True, position="midCenter") 
-        confirm = mc.confirmDialog(title="Delete Folder", 
-                                    message="Are you sure you want to delete this pose folder and ALL of the files it contains?", 
-                                    button=["Confirm", "Cancel"], 
-                                    defaultButton="Cancel", 
-                                    cancelButton="Cancel"
-                                    )
-        if confirm == "Confirm":
-            folderPath = os.path.join(self.libPath, tabName)
-            if os.path.exists(folderPath):
-                shutil.rmtree(folderPath)
-            mc.tabLayout(layout, e=True, closeTab=tabIndex)
-            print(f"{folderPath}, and all of its contents, have been deleted.")
-   
 
     ########################
     ###   UI FUNCTIONS   ###
@@ -296,7 +95,7 @@ class AnimLibrary():
         """
         Lists the files in a directory and creates a button for each file it finds.
         """
-        #Make a list of all of the files in the filePath, excluding any directories.
+        #Make of list of all of the files in the filePath, excluding any directories.
         ExistingPoseFiles = []
         for (dirPath, dirnames, fileNames) in os.walk(filePath):
             ExistingPoseFiles.extend(fileNames)
@@ -316,6 +115,15 @@ class AnimLibrary():
             mc.iconTextRadioButton(newBtn, e=True, onCommand=lambda x:print("Files Missing") )
             #Assign the button's command.
             self.set_btn_path(newBtn)
+        
+
+    # def btn_process(self, layout):
+    #     """
+    #     Goes through each button in the given layout and runs sets their onCommand to set the currentPose.
+    #     """
+    #     btnList = mc.flowLayout(layout, q=True, childArray=True)
+    #     for btn in btnList:
+    #         self.set_btn_path(btn)
     
 
     def set_btn_path(self, button):
@@ -432,11 +240,7 @@ class AnimLibrary():
         #print(rigMesh)
         #mc.select(rigMesh)
         return rigMesh
-    
-    
-    #################################
-    ###   POSE BUTTON FUNCTIONS   ###
-    #################################
+        
 
     def set_current_pose(self, dirPath, fileName):
         """
@@ -470,9 +274,8 @@ class AnimLibrary():
         Creates a popup menu for a given pose button.
         """
         currentMenu = mc.popupMenu(parent=button)
-        mc.menuItem(parent=currentMenu, label="Rename Pose", command=lambda x: self.rename_pose_btn(button, layout))
+        mc.menuItem(parent=currentMenu, label="Rename pose", command=lambda x: self.rename_pose_btn(button, layout))
         mc.menuItem(parent=currentMenu, label="Replace Thumbnail", command=lambda x:self.replace_thumbnail(button))
-        mc.menuItem(parent=currentMenu, divider=True)
         mc.menuItem(parent=currentMenu, label="Delete pose", command=lambda x: self.delete_pose_btn(button, layout))
     
     
@@ -520,7 +323,7 @@ class AnimLibrary():
             #Check for the matching json and rename it.
             if os.path.isfile(poseFile):                        
                 os.rename(poseFile, newFile)
-        
+
 
     def replace_thumbnail(self, button):
         """
@@ -534,14 +337,10 @@ class AnimLibrary():
                                     cancelButton="Cancel"
                                     )
         if confirm == "Confirm":
-            #Get the tempImg file and setup the path to the file it's replacing.
-            imgPath = os.path.join(self.libThumbPath, "TempImg.jpg")
+            imgPath = os.path.join(self.thumbPath, "TempImg.jpg")
             newPath = os.path.join(self.thumbPath, f"{buttonName}.jpg")
-            #Replace the existing thumbnail with a copy of the TempImg file.
             shutil.copy(imgPath, newPath)
             mc.iconTextRadioButton(button, e=True, image=newPath)
-            #Reload the buttons in this tab.
-            self.reload_layout(self.poseLayout)
         else:
             print("Thumbnail replacement cancelled.")
 
@@ -632,7 +431,7 @@ class AnimLibrary():
         nameInput = self.file_name_dialog()
         if nameInput:
             #Create the filepaths and file names for the json file and thumbnail jpg.
-            tempImgFile = os.path.join(self.libThumbPath, "TempImg.jpg")
+            tempImgFile = os.path.join(dirPath, "thumbnails", "TempImg.jpg")
             ImgFile = os.path.join(dirPath, "thumbnails", f"{nameInput}.jpg")
             #Check if the files exist already.
             if self.overwrite_check(ImgFile) == "Overwrite":
@@ -640,7 +439,6 @@ class AnimLibrary():
                 btnCheck = self.find_button_by_label(layout, nameInput)
                 if btnCheck:
                     self.delete_pose_btn(btnCheck, layout, confirmCheck=False)
-            print(f"{tempImgFile, ImgFile}")
             #Copy the TempImg and rename it to the given name.
             shutil.copy(tempImgFile, ImgFile)
             #Add a button to the UI.
@@ -704,7 +502,7 @@ class AnimLibrary():
         else:
             return print("Nothing selected. Select one control on the rig you wish to affect.")
         #Read the pose's json file to get its controls.
-        poseData = fm.read_json_file(self.currentPose)
+        poseData = read_json_file(self.currentPose)
         objectList = poseData.keys()
         objList = []
         for obj in objectList:
@@ -758,20 +556,28 @@ class AnimLibrary():
         print(f"Selected controls: {rigCtrls}")
 
     
-    def reload_layout(self, layout):
-        """
-        Reloads all buttons in the given layout.
-        """
-        children = mc.layout(layout, q=True, childArray=True)
-        print(children)
-        for btn in children:
-            mc.deleteUI(btn, control=True)
-        self.load_all_btns(self.posePath, layout, self.btnCol)
+    # def sort_btns(self, layout):
+    #     """
+    #     WiP function that reorders buttons in the layout.
+    #     """
+    #     children = mc.layout(layout, q=True, childArray=True)
+    #     print(children)
 
 
     ##########################
     ###   FILE FUNCTIONS   ###
     ##########################
+
+    def file_path_check(self, filePath):
+        """
+        Checks for a filePath and creates it if it doesn't exist.
+        """
+        if not os.path.exists(filePath):
+            print(f"Could not locate directory. Creating {filePath}.")
+            Path.mkdir(fr"{filePath}")
+        else:
+            print(f"Confirmed directory: {filePath}.")
+
 
     def get_ctrl_attrs_data(self, obj)-> dict:
         """
@@ -833,7 +639,7 @@ class AnimLibrary():
             if objData:
                 data.update(objData)
         #{object:{attribute:value, attribute:value, etc}, object:{attribute:value, attribute:value, etc}, etc}
-        fm.write_json_file(dirPath, fileName, data)
+        write_json_file(dirPath, fileName, data)
     
 
     def read_pose_file(self, filePath): 
@@ -841,7 +647,7 @@ class AnimLibrary():
         Reads and prints the contents of a pose json file.
         """
         #Read the json file.
-        poseData = fm.read_json_file(filePath)
+        poseData = read_json_file(filePath)
         return poseData
 
 
