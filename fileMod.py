@@ -1,6 +1,6 @@
 import json
 from os import path
-
+from pathlib import Path
 
 
 def write_json_file(dirPath, fileName, data):
@@ -23,3 +23,12 @@ def read_json_file(filePath)-> dict:
         return loadedData
 
 
+def file_path_check(filePath):
+        """
+        Checks for a filePath and creates it if it doesn't exist.
+        """
+        if not path.exists(filePath):
+            print(f"Could not locate directory. Creating {filePath}.")
+            Path.mkdir(fr"{filePath}")
+        else:
+            print(f"Confirmed directory: {filePath}.")
