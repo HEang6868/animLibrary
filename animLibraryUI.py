@@ -1,5 +1,4 @@
 import maya.cmds as mc
-from pathlib import Path
 import os
 import shutil
 import animLibrary.screenshotMod as ssm
