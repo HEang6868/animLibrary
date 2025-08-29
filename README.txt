@@ -6,6 +6,7 @@ The poses you save can be saved to individual tabs which will also sort their fi
 
 Known issues: 
 - Deleting a tab after you've deleted the folder will freeze Maya and require a restart.
+- Closing tabs is currently broken.
 
 
 INSTALLATION:
