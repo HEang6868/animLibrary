@@ -10,9 +10,11 @@ Known issues:
 
 
 INSTALLATION:
-- Save the folder this file is in to your maya/scripts directory and load this folder as a module.
-- Open animLibraryUI.py in Maya's script editor.
-- Press 'ctrl + a' to select all of the contents in the script editor, then middle-click and drag from the script editor to your desired Maya shelf to create a button.
+- Save the folder this file is in to your maya/scripts directory.
+- Drag and drop animLibrary_INSTALL.py into your Maya viewport.
+- A button should be created in your "custom" shelf.
+
+Pressing the button should open the tool.
 
 
 SETTINGS:
